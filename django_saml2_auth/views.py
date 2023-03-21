@@ -163,21 +163,32 @@ def acs(r):
         resp, entity.BINDING_HTTP_POST)
     if authn_response is None:
         return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
-
     user_identity = authn_response.get_identity()
     if user_identity is None:
         return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
 
-    user_email = user_identity[settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('email', 'Email')][0]
-    user_name = user_identity[settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('username', 'UserName')][0]
-    user_first_name = user_identity[settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('first_name', 'FirstName')][0]
-    user_last_name = user_identity[settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('last_name', 'LastName')][0]
+    if not user_identity:
+        authn_response.parse_assertion(list(settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).keys()))
+        subject_name_id = settings.SAML2_AUTH.get('SUBJECT_NAMEID_MAPPING', 'email')
+        user_email = authn_response.ava.get(settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('email', 'email'))[0]
+        user_complete_name = authn_response.ava.get(settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('username', 'username'))[0]
+        splitted_name = user_complete_name.split(' ')
+        user_first_name = splitted_name[0]
+        user_last_name = ' '.join(splitted_name[1:len(splitted_name)]) if len(splitted_name) > 1 else ''
+        user_name = authn_response.get_subject().text
+        user_query = {'username': user_name}
+    else:
+        user_email = user_identity[settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('email', 'Email')][0]
+        user_name = user_identity[settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('username', 'UserName')][0]
+        user_first_name = user_identity[settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('first_name', 'FirstName')][0]
+        user_last_name = user_identity[settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('last_name', 'LastName')][0]
+        user_query = {'username': user_name}
 
     target_user = None
     is_new_user = False
 
     try:
-        target_user = User.objects.get(username=user_name)
+        target_user = User.objects.get(**user_query)
         if settings.SAML2_AUTH.get('TRIGGER', {}).get('BEFORE_LOGIN', None):
             import_string(settings.SAML2_AUTH['TRIGGER']['BEFORE_LOGIN'])(user_identity)
     except User.DoesNotExist:
